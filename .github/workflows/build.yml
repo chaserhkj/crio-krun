@@ -1,0 +1,26 @@
+name: Build and push container image
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v5
+      
+      - name: Build and push using podman
+        uses: Frozen-Tapestry/container-action@v1
+        with:
+          login_registry: ghcr.io
+          login_username: ${{ secrets.REGISTRY_USERNAME }}
+          login_password: ${{ secrets.REGISTRY_PASSWORD }}
+          tags: ghcr.io/chaserhkj/crio-krun:latest
+          dockerfile: Containerfile
+          security: |
+            --security-opt=seccomp=unconfined
+            --security-opt=apparmor=unconfined
+          push: true
