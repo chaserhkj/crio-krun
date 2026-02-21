@@ -27,5 +27,3 @@ COPY --from=build /cgroups_delegate /usr/bin/cgroups_delegate
 COPY --from=tini /sbin/tini-static /usr/bin/tini
 
 ENTRYPOINT ["/usr/bin/cgroups_delegate", "/usr/bin/tini", "--", "/usr/bin/crio"]
-
-CMD ["--cgroup-manager=cgroupfs"]
