@@ -1,10 +1,10 @@
 # crio-krun
 
-Container image to run cri-o in a nested container setup, with krun enabled for microVM isolation
+Container image to run CRI-O in a nested container setup, with krun enabled for microVM isolation.
 
 ## Usage
 
-Rootful `--privileged` is required to manage containers and/or microVMs.
+Rootful `--privileged` mode is required to manage containers and/or microVMs.
 
 ```bash
 sudo podman run --privileged \
@@ -15,15 +15,15 @@ sudo podman run --privileged \
     crio-krun
 ```
 
-## But why ?
+## Motivation
 
-I built this mostly for running [k0s](https://docs.k0sproject.io/stable/) worker node on multi-tenant servers with rootful container engines. While k0s is cool and minimal, a system-level installation of it is tricky to manage on multi-tenant servers as it could easily interfere with the loads of other the users of the server. Running it in a container helps managing these a lot.
+This project was developed to run [k0s](https://docs.k0sproject.io/stable/) worker nodes on multi-tenant servers with rootful container engines. While k0s offers a minimal and efficient Kubernetes distribution, a system-level installation can be challenging to manage on multi-tenant servers due to potential interference with other users' workloads. Running k0s within a container provides improved manageability in such environments.
 
-k0s does provide official images to be run with docker or other container engines, but running it this way it can only use its embedded containerd CRI. I want to use [CRI-O](https://github.com/cri-o/cri-o) and [krun](https://github.com/containers/libkrun) for the better isolation provided by the microVM, so I tried and eventually made this work.
+k0s provides official images for deployment with Docker and other container engines; however, these configurations rely on k0s's embedded containerd CRI implementation. This project enables the use of [CRI-O](https://github.com/cri-o/cri-o) and [krun](https://github.com/containers/libkrun) instead, offering enhanced isolation through microVM technology.
 
 ## k0s + crio-krun
 
-Here is my compose file for k0s + crio-krun setup, for reference:
+The following compose file demonstrates a complete k0s + crio-krun configuration:
 
 ```yaml
 services:
@@ -102,14 +102,18 @@ networks:
     driver: bridge
 ```
 
-I put [zerotier](https://github.com/zerotier/ZeroTierOne) in since my clusters are set up using zerotier as mesh network. With this setup the entire worker node is confined within this pod and no routes or ips will be leaked to the host or other container loads on the host.
+[ZeroTier](https://github.com/zerotier/ZeroTierOne) is included in this configuration because the clusters are deployed using ZeroTier as a mesh networking solution. This setup confines the entire worker node within the pod, ensuring that no routes or IP addresses are leaked to the host or other container workloads running on the host.
 
-## limitations
+## Limitations
 
-One known limitations of this approach is that since kubelet and container runtime is run in different cgroup and pid namespaces, kubelet's metric collection won't be able to see any usage, neither from the pods it started itself, or from the other loads on the host. This may complicate horizontal autoscaling in the k8s cluster.
+A known limitation of this approach relates to metric collection. Since kubelet and the container runtime operate in separate cgroup and PID namespaces, kubelet cannot retrieve resource usage information from either the pods it manages or from other workloads running on the host. This limitation may affect horizontal autoscaling functionality within the Kubernetes cluster.
 
-The official k0s running in container solution has a similar limitation, but it is slightly better since kubelet running in the same container as the pod loads would at least enable it to see metrics of the pods it started itself. Metrics for the entire host is still not possible.
+The official k0s in-container solution experiences a similar issue, though it is marginally better since kubelet running in the same container as the pod workloads can at least access metrics for the pods it directly manages. Metrics for the entire host remain inaccessible in both approaches.
 
-A workaround for this is to use `cgroup: host` and `pid: host` on the k0s container. This gives kubelet the ability to report metrics of entire host. Just be aware that due to this [k0s issue](https://github.com/k0sproject/k0s/issues/4234), under this setting, kubelet and k0s worker process will escape container cgroup (i.e. stopping the container won't stop these processes, you need to manually kill them either by systemd on a systemd system or by cgroup.kill)
+A workaround involves using `cgroup: host` and `pid: host` on the k0s container, which enables kubelet to report metrics for the entire host. However, due to a [k0s issue](https://github.com/k0sproject/k0s/issues/4234), these settings cause kubelet and k0s worker processes to escape the container cgroup. This means stopping the container will not terminate these processes; they must be killed manually through systemd on systemd-based systems or via cgroup.kill.
 
-A more proper solution is to use prometheus node exporter to collect the metrics on another sidecar container and use prometheus-adapter to provide metrics API instead of k8s metrics server to the cluster auto scalers. But this requires a full prometheus setup and a lot of changes to the k8s stack itself.
+A more robust solution involves deploying a Prometheus node exporter in a sidecar container to collect metrics, then using prometheus-adapter to provide the metrics API to cluster autoscalers instead of the Kubernetes Metrics Server. This approach requires a complete Prometheus deployment and significant modifications to the k0s stack itself.
+
+## Disclaimer
+
+This README file is enhanced using [MiniMax-M2.5](https://huggingface.co/MiniMaxAI/MiniMax-M2.5) and [Continue](https://www.continue.dev/).
