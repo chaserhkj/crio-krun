@@ -1,0 +1,118 @@
+services:
+  zerotier:
+    hostname: ${K0S_NODE_NAME}
+    image: docker.io/zerotier/zerotier:latest
+    devices:
+      - /dev/net/tun:/dev/net/tun:rwm
+    cap_add:
+      - NET_ADMIN
+    restart: always
+    environment:
+      - ZEROTIER_IDENTITY_PUBLIC=${ZT_ID_PUB}
+      - ZEROTIER_IDENTITY_SECRET=${ZT_ID_SEC}
+    command: ${ZT_NET}
+    healthcheck:
+      test: 
+        - "CMD-SHELL"
+        - "zerotier-cli listnetworks | grep -E 'OK.*[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+' || exit 1"
+      retries: 15
+      start_interval: 3s
+      start_period: 15s
+      interval: 15s
+    ports:
+      - "9994:9993/udp"
+  crio-krun:
+    depends_on:
+      zerotier:
+        condition: service_healthy
+        restart: true
+    restart: always
+    image: ghcr.io/chaserhkj/crio-krun:latest
+    network_mode: service:zerotier
+    privileged: true
+    volumes:
+      - cni-config:/etc/cni
+      - k0s-log:/var/log
+      - crio-run:/var/run/crio
+      - k0s-run:/run/k0s
+      - ./k0s-data:/var/lib/k0s:shared
+      - ./crio-data:/var/lib/containers:shared
+  k0s:
+    # FIXME: due to https://github.com/k0sproject/k0s/issues/4234
+    # k0s in a container cannot collect node metrics correctly without breaking host cgroups
+    # For now use prometheus node-exporter as another sidecar to export proper node metrics
+    # use a separate cadvisor daemonset (see cAdvisor.yaml) to export proper per-pod metrics
+    # use together with prometheus + prometheus-adapter to provide metrics to k8s
+    depends_on:
+      - crio-krun
+    restart: always
+    image: docker.io/k0sproject/k0s:${K0S_VERSION}
+    tmpfs: ["/run"]
+    privileged: true
+    network_mode: service:zerotier
+    command:
+      - k0s
+      - worker
+      - ${K0S_JOIN_TOKEN}
+      - --cri-socket=remote:unix:///run/crio/crio.sock
+      - --kubelet-extra-args=--node-ip=${K0S_NODE_IP}
+      # Label this node as having incorrect metrics on kubelet
+      - --labels=external-metrics=true
+    volumes:
+      - cni-config:/etc/cni
+      - k0s-log:/var/log
+      - crio-run:/var/run/crio
+      - k0s-run:/run/k0s
+      - ./k0s-data:/var/lib/k0s:shared
+  # node-exporter to export correct metrics of the entire node
+  node-exporter:
+    image: quay.io/prometheus/node-exporter:latest
+    command:
+      - '--path.rootfs=/host'
+      - '--web.listen-address=127.0.0.1:9100'
+    network_mode: host
+    # Alternatively, if you don't need network metrics, use isolated zerotier network
+    # Remember to change above listen-address to bind to containerized zerotier interface
+    # network_mode: service:zerotier
+    pid: host
+    restart: always
+    volumes:
+      - /:/host:ro,rslave
+  # When using host network mode, need two socat instances to bridge zerotier interface 9100 port
+  # to host loopback 9100 port
+  node-exporter-socat-front:
+    image: docker.io/alpine/socat:latest
+    restart: always
+    command:
+      - "tcp-listen:9100,fork"
+      - "unix-connect:/run/socat/socat.sock"
+    network_mode: service:zerotier
+    volumes:
+      - socat-run:/run/socat
+  node-exporter-socat-back:
+    image: docker.io/alpine/socat:latest
+    restart: always
+    command:
+      - "unix-listen:/run/socat/socat.sock,fork,unlink-early"
+      - "tcp-connect:127.0.0.1:9100"
+    network_mode: host
+    volumes:
+      - socat-run:/run/socat
+volumes:
+  cni-config: {}
+  k0s-log: {}
+  crio-run:
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+  k0s-run:
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+  socat-run:
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+networks:
+  default:
+    driver: bridge

@@ -23,86 +23,11 @@ k0s provides official images for deployment with Docker and other container engi
 
 ## k0s + crio-krun
 
-The following compose file demonstrates a complete k0s + crio-krun configuration:
-
-```yaml
-services:
-  zerotier:
-    hostname: ${K0S_NODE_NAME}
-    image: docker.io/zerotier/zerotier:latest
-    devices:
-      - /dev/net/tun:/dev/net/tun:rwm
-    cap_add:
-      - NET_ADMIN
-    restart: always
-    environment:
-      - ZEROTIER_IDENTITY_PUBLIC=${ZT_ID_PUB}
-      - ZEROTIER_IDENTITY_SECRET=${ZT_ID_SEC}
-    command: ${ZT_NET}
-    healthcheck:
-      test: 
-        - "CMD-SHELL"
-        - "zerotier-cli listnetworks | grep -E 'OK.*[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+' || exit 1"
-      retries: 15
-      start_interval: 3s
-      start_period: 15s
-      interval: 15s
-    ports:
-      - "9994:9993/udp"
-  crio-krun:
-    depends_on:
-      zerotier:
-        condition: service_healthy
-        restart: true
-    restart: always
-    image: ghcr.io/chaserhkj/crio-krun:latest
-    network_mode: service:zerotier
-    privileged: true
-    volumes:
-      - crio-data:/var/lib/containers
-      - cni-config:/etc/cni
-      - k0s-log:/var/log/pods
-      - crio-run:/var/run/crio
-      - k0s-run:/run/k0s
-      - ./k0s-data:/var/lib/k0s:shared
-  k0s:
-    depends_on:
-      - crio-krun
-    restart: always
-    image: docker.io/k0sproject/k0s:${K0S_VERSION}
-    tmpfs: ["/run"]
-    privileged: true
-    network_mode: service:zerotier
-    command:
-      - k0s
-      - worker
-      - ${K0S_JOIN_TOKEN}
-      - --cri-socket=remote:unix:///run/crio/crio.sock
-      - --kubelet-extra-args=--node-ip=${K0S_NODE_IP}
-    volumes:
-      - cni-config:/etc/cni
-      - k0s-log:/var/log/pods
-      - crio-run:/var/run/crio
-      - k0s-run:/run/k0s
-      - ./k0s-data:/var/lib/k0s:shared
-volumes:
-  crio-data: {}
-  cni-config: {}
-  k0s-log: {}
-  crio-run:
-    driver_opts:
-      type: tmpfs
-      device: tmpfs
-  k0s-run:
-    driver_opts:
-      type: tmpfs
-      device: tmpfs
-networks:
-  default:
-    driver: bridge
-```
+[This compose file](examples/k0s/compose.yaml) demonstrates a complete k0s + crio-krun configuration.
 
 [ZeroTier](https://github.com/zerotier/ZeroTierOne) is included in this configuration because the clusters are deployed using ZeroTier as a mesh networking solution. This setup confines the entire worker node within the pod, ensuring that no routes or IP addresses are leaked to the host or other container workloads running on the host.
+
+[node-exporter](https://github.com/prometheus/node_exporter) is included in this configuration to mitigate the limitation mentioned below.
 
 ## Limitations
 
@@ -112,7 +37,9 @@ The official k0s in-container solution experiences a similar issue, though it is
 
 A workaround involves using `cgroup: host` and `pid: host` on the k0s container, which enables kubelet to report metrics for the entire host. However, due to a [k0s issue](https://github.com/k0sproject/k0s/issues/4234), these settings cause kubelet and k0s worker processes to escape the container cgroup. This means stopping the container will not terminate these processes; they must be killed manually through systemd on systemd-based systems or via cgroup.kill.
 
-A more robust solution involves deploying a Prometheus node exporter in a sidecar container to collect metrics, then using prometheus-adapter to provide the metrics API to cluster autoscalers instead of the Kubernetes Metrics Server. This approach requires a complete Prometheus deployment and significant modifications to the k0s stack itself.
+A more robust solution involves deploying a Prometheus node exporter in a sidecar container to collect metrics, then using prometheus-adapter to provide the metrics API to cluster autoscalers instead of the Kubernetes Metrics Server. This approach requires a complete Prometheus deployment and modifications to the k0s stack itself (`--disable-components metrics-server`).
+
+Furthermore, to collect accurate per-pod metrics, a [cAdvisor](https://github.com/google/cadvisor) instance could be deployed to run in CRI-O runtime with proper bind mounts to access and export these metrics. See [this file](examples/k0s/cAdvisor.yaml) for details.
 
 ## Disclaimer
 

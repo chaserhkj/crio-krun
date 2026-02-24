@@ -1,0 +1,112 @@
+# On nodes where internal per-pod metrics are missing (external-metrics=true)
+# Deploy cadvisor to collect per-pod metrics
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: external-cadvisor
+  namespace: observability 
+  labels:
+    app: external-cadvisor
+spec:
+  selector:
+    matchLabels:
+      app: external-cadvisor
+  template:
+    metadata:
+      labels:
+        app: external-cadvisor
+    spec:
+      nodeSelector:
+        external-metrics: "true"
+      hostPID: true
+      containers:
+        - name: external-cadvisor
+          image: ghcr.io/google/cadvisor:0.56
+          args:
+            - -containerd=/var/run/crio/crio.sock
+            - -housekeeping_interval=10s
+            - -disable_root_cgroup_stats
+            - -disable_metrics=advtcp,cpu_topology,cpuset,hugetlb,memory_numa,process,referenced_memory,resctrl,sched,tcp,udp,disk,diskIO
+          ports:
+            - containerPort: 8080
+              hostPort: 20080
+              name: cadvisor
+          volumeMounts:
+            - name: root
+              mountPath: /rootfs
+              readOnly: true
+              mountPropagation: HostToContainer
+            - name: cgroupfs
+              mountPath: /sys/fs/cgroup
+              readOnly: true
+            - name: crio
+              mountPath: /var/run/crio
+              readOnly: false
+            - name: logs
+              mountPath: /var/log
+              readOnly: true
+              mountPropagation: HostToContainer
+            - name: containers-storage
+              mountPath: /var/lib/containers
+              readOnly: true
+              mountPropagation: HostToContainer
+            - name: k0s-data
+              mountPath: /var/lib/k0s
+              readOnly: true
+              mountPropagation: HostToContainer
+      volumes:
+        - name: root
+          hostPath:
+            path: /
+        - name: cgroupfs
+          hostPath:
+            path: /sys/fs/cgroup
+        - name: crio
+          hostPath:
+            path: /var/run/crio
+        - name: logs
+          hostPath:
+            path: /var/log
+        - name: containers-storage
+          hostPath:
+            path: /var/lib/containers
+        - name: k0s-data
+          hostPath:
+            path: /var/lib/k0s
+---
+# Scrape for external per-pod metrics from cadvisor
+# This is for VictoriaMetrics Operator setups.
+# Prometheus setups should be very similar
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMNodeScrape
+metadata:
+  name: external-cadvisor
+  namespace: observability 
+spec:
+  scheme: http
+  port: "20080"
+  path: /metrics
+  selector:
+    matchLabels:
+      # Only scrape external metrics nodes
+      external-metrics: "true"
+  # This section should be compatible with prometheus
+  metricRelabelConfigs:
+    - action: replace
+      target_label: job
+      replacement: cadvisor
+    - action: labelmap
+      regex: container_label_io_kubernetes_pod_name
+      replacement: pod
+    - action: labelmap
+      regex: container_label_io_kubernetes_pod_namespace
+      replacement: namespace
+    - if: '{container_label_io_kubernetes_container_name="POD"}'
+      source_labels: [__name__]
+      target_label: __name__
+      regex: "container_(.+)"
+      replacement: "pod_$1"
+    - if: '{container_label_io_kubernetes_container_name!="POD"}'
+      action: labelmap
+      regex: container_label_io_kubernetes_container_name
+      replacement: container
