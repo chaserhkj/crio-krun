@@ -1,4 +1,4 @@
-# Build crun from source to enable krun
+ARG ARCH_LOCK=docker.io/archlinux/archlinux:latest
 FROM docker.io/library/rust:1 as build
 
 COPY cgroups_delegate/ /work
@@ -11,7 +11,7 @@ FROM docker.io/library/alpine:latest as tini
 
 RUN apk add --no-cache tini-static
 
-FROM docker.io/archlinux/archlinux:latest
+FROM ${ARCH_LOCK}
 
 RUN --mount=type=cache,target=/var/lib/pacman/sync,id=pacman-sync \
     --mount=type=cache,target=/var/cache/pacman/pkg,id=pacman-cache \
