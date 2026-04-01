@@ -1,8 +1,8 @@
 # Use a nix-built git version of CRI-O binary
-ARG NIX_REF=github:chaserhkj/cri-o/1.35-userns-fuse-fix
 FROM ghcr.io/nix-community/docker-nixpkgs/nix-flakes:latest-x86_64-linux as builder
+ARG NIX_REF=github:chaserhkj/cri-o/1.35-userns-fuse-fix
 
-RUN nix build $NIX_REF
+RUN nix build ${NIX_REF}
 
 RUN mkdir -p /target && cp result/bin/* /target/
 
