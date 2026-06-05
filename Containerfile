@@ -15,38 +15,73 @@ FROM archlinux as libkrun
 
 RUN --mount=type=cache,target=/var/lib/pacman/sync,id=pacman-sync \
     --mount=type=cache,target=/var/cache/pacman/pkg,id=pacman-cache \
-    pacman -Sy --needed --noconfirm base-devel git glibc gcc-libs libkrunfw pipewire virglrenderer \
-    cargo patchelf clang bc python-pyelftools cpio
+    pacman -Sy --needed --noconfirm base-devel git sudo
 
-RUN bash -ex <<'EOF'
-git clone https://github.com/containers/libkrun
-cd libkrun
-cargo fetch --locked --target "$(rustc --print host-tuple)"
+WORKDIR /var/build
 
-export ZSTD_SYS_USE_PKG_CONFIG=1
-make BLK=1 NET=1 EFI=0 GPU=1 SND=1 INPUT=1 VERBOSE=1
+RUN mkdir -p /var/build/libkrun
 
-mkdir -p /target
-pkgdir=/target
+COPY <<'EOF' /var/build/libkrun/PKGBUILD
+_pkgname=libkrun
+pkgname=${_pkgname}-git
+pkgver=1.18.1
+pkgrel=1
+pkgdesc="A dynamic library providing Virtualization-based process isolation capabilities"
+url='https://github.com/containers/libkrun'
+arch=('x86_64')
+license=('Apache-2.0')
+conflicts=("$_pkgname")
+provides=("$_pkgname")
+makedepends=('cargo' 'patchelf' 'clang')
+depends=('glibc' 'gcc-libs' 'libkrunfw' 'pipewire' 'virglrenderer')
+source=("git+https://github.com/containers/libkrun")
+sha256sums=('SKIP')
 
-make DESTDIR="$pkgdir" PREFIX=/usr LIBDIR_Linux=lib install
-install -Dm644 LICENSE "$pkgdir"/usr/share/licenses/$pkgname/LICENSE
+pkgver() {
+  cd "$_pkgname"
+  ( set -o pipefail
+    git describe --tags --long 2>/dev/null | sed 's/\([^-]*-g\)/r\1/;s/-/./g' ||
+    printf "r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+  )
+}
+prepare() {
+  cd "$_pkgname"
+
+  cargo fetch --locked --target "$(rustc --print host-tuple)"
+}
+
+build() {
+  cd "$_pkgname"
+
+  export ZSTD_SYS_USE_PKG_CONFIG=1
+  make BLK=1 NET=1 EFI=0 GPU=1 SND=1 INPUT=1 VERBOSE=1
+}
+
+package() {
+  cd "$_pkgname"
+
+  make DESTDIR="$pkgdir" PREFIX=/usr LIBDIR_Linux=lib install
+}
 EOF
 
-# Skip libkrunfw for now since release version worked fine
-# RUN bash -ex <<'EOF'
-# git clone https://github.com/containers/libkrunfw
-# cd libkrunfw
-# make
+RUN bash -ex <<'EOF'
+useradd -m build
+passwd -d build
+echo "build ALL=(ALL) NOPASSWD: /usr/bin/pacman" >> /etc/sudoers
 
-# mkdir -p /target
-# pkgdir=/target
+cd /var/build/libkrun
+chown -R build .
 
-# make DESTDIR="$pkgdir" PREFIX=/usr LIBDIR_Linux=lib install
+pacman -Syy
+sudo -u build -- makepkg -s --needed --noconfirm
 
-# install -Dm644 LICENSE-GPL-2.0-only "$pkgdir"/usr/share/licenses/$pkgname/LICENSE-GPL-2.0-only
-# install -Dm644 LICENSE-LGPL-2.1-only "$pkgdir"/usr/share/licenses/$pkgname/LICENSE-LGPL-2.1-only
-# EOF
+pkg_count=$(ls libkrun-git-v*.pkg.tar.zst|wc -l)
+[[ "$pkg_count" != "1" ]] && exit 1
+
+mkdir -p /output
+cp libkrun-git-v*.pkg.tar.zst /output/
+
+EOF
 
 FROM archlinux
 
@@ -55,7 +90,8 @@ RUN --mount=type=cache,target=/var/lib/pacman/sync,id=pacman-sync \
     yes | pacman -Sy iptables-nft && \
     pacman -S --needed --noconfirm cri-o krun cni-plugins fuse-overlayfs crictl
 
-COPY --from=libkrun /target/ /
+RUN --mount=from=libkrun,target=/tmp/pkgs \
+    yes | pacman -U --needed /tmp/pkgs/output/*.pkg.tar.zst
 
 COPY storage.conf /etc/containers/
 
