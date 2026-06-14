@@ -32,21 +32,21 @@ arch=('x86_64')
 license=('Apache-2.0')
 conflicts=("$_pkgname")
 provides=("$_pkgname")
-makedepends=('cargo' 'patchelf' 'clang')
+makedepends=('cargo' 'patchelf' 'clang' 'rustup')
 depends=('glibc' 'gcc-libs' 'libkrunfw' 'pipewire' 'virglrenderer')
 source=("git+https://github.com/containers/libkrun")
 sha256sums=('SKIP')
 
 pkgver() {
   cd "$_pkgname"
-  # FIXME: remove version pin after upstream merges fix
-  git checkout ca70dad1a4fba8717dc556601efde7812cdf4d85
   ( set -o pipefail
     git describe --tags --long 2>/dev/null | sed 's/\([^-]*-g\)/r\1/;s/-/./g' ||
     printf "r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
   )
 }
 prepare() {
+  rustup default stable
+  rustup target add $(uname -m)-unknown-linux-musl
   cd "$_pkgname"
 
   cargo fetch --locked --target "$(rustc --print host-tuple)"
