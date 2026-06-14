@@ -88,7 +88,7 @@ FROM archlinux
 RUN --mount=type=cache,target=/var/lib/pacman/sync,id=pacman-sync \
     --mount=type=cache,target=/var/cache/pacman/pkg,id=pacman-cache \
     yes | pacman -Sy iptables-nft && \
-    pacman -S --needed --noconfirm cri-o krun cni-plugins fuse-overlayfs crictl
+    pacman -S --needed --noconfirm cri-o krun passt cni-plugins fuse-overlayfs crictl
 
 RUN --mount=from=libkrun,target=/tmp/pkgs \
     yes | pacman -U --needed /tmp/pkgs/output/*.pkg.tar.zst
