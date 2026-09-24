@@ -92,7 +92,9 @@ RUN --mount=type=cache,target=/var/lib/pacman/sync,id=pacman-sync \
     yes | pacman -Sy iptables-nft && \
     pacman -S --needed --noconfirm cri-o krun passt cni-plugins fuse-overlayfs crictl
 
-RUN --mount=from=libkrun,target=/tmp/pkgs \
+RUN --mount=type=cache,target=/var/lib/pacman/sync,id=pacman-sync \
+    --mount=type=cache,target=/var/cache/pacman/pkg,id=pacman-cache \
+    --mount=from=libkrun,target=/tmp/pkgs \
     yes | pacman -U --needed /tmp/pkgs/output/*.pkg.tar.zst
 
 COPY storage.conf /etc/containers/
