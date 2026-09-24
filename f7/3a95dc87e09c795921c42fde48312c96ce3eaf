@@ -1,0 +1,14 @@
+Containerfile
+  h_8d23b84102cdcd 95-97
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "f73a95dc87e09c795921c42fde48312c96ce3eaf",
+  "prompts": {},
+  "humans": {
+    "h_8d23b84102cdcd": {
+      "author": "Chaser Huang <huangkangjing@gmail.com>"
+    }
+  }
+}
